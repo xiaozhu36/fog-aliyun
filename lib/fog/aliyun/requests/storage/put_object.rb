@@ -16,8 +16,8 @@ module Fog
           puts "fffffffffffffff put_object: key: #{file.path}; size: #{file.size}"
 
           return bucket.put_object(object) if file.nil?
-          # With a single PUT operation you can upload objects up to 5 GB in size.
-          if file.size > 5_368_709_120
+          # With a single PUT operation you can upload objects up to 100MB in size.
+          if file.size > 104_857_600
             bucket.resumable_upload(object, file.path)
             retry_times = 5
             retry_times.times do
