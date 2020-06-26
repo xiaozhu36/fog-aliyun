@@ -13,18 +13,33 @@ module Fog
           bucket_name = options[:bucket]
           bucket_name ||= @aliyun_oss_bucket
           bucket = @oss_client.get_bucket(bucket_name)
+          puts "fffffffffffffff put_object: key: #{file.path}; size: #{file.size}"
+
           return bucket.put_object(object) if file.nil?
           # With a single PUT operation you can upload objects up to 5 GB in size.
           if file.size > 5_368_709_120
             bucket.resumable_upload(object, file.path)
+            retry_times = 5
+            retry_times.times do
+              begin
+                bucket.resumable_upload(object, file.path)
+              rescue => e
+                raise(e)
+              end
+            end
           end
-          bucket.put_object(object, :file => file.path)
+          begin
+            bucket.put_object(object, :file => file.path)
+          rescue => e
+            raise(e)
+          end
         end
 
         def put_object_with_body(object, body, options = {})
           bucket_name = options[:bucket]
           bucket_name ||= @aliyun_oss_bucket
 
+          puts "bbbbbbbbbbbbbbb put_object_with_body: key: #{body.key}; size: #{body.size}; path: #{body.path}"
           resource = bucket_name + '/' + object
           request(
             expects: [200, 203],

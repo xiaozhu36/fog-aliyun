@@ -85,7 +85,7 @@ module Fog
           end
         end
 
-        def get(key)
+        def get(key, options = {}, &block)
           requires :directory
           bucket_name, directory_key = check_directory_key(directory.key)
           object = if directory_key == ''
