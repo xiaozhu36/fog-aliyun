@@ -7,18 +7,41 @@ module Fog
         # Put details for object
         #
         # ==== Parameters
-        # * object<~String> - Name of object to look for
+        # * object_name<~String> - Name of object to look for
         #
-        def put_object(object, file = nil, options = {})
-          bucket_name = options[:bucket]
-          bucket_name ||= @aliyun_oss_bucket
-          bucket = @oss_client.get_bucket(bucket_name)
-          return bucket.put_object(object) if file.nil?
-          # With a single PUT operation you can upload objects up to 5 GB in size.
-          if file.size > 5_368_709_120
-            bucket.resumable_upload(object, file.path)
+        def self.conforming_to_us_ascii!(keys, hash)
+          keys.each do |k|
+            v = hash[k]
+            if !v.encode(::Encoding::US_ASCII, :undef => :replace).eql?(v)
+              raise Excon::Errors::BadRequest.new("invalid #{k} header: value must be us-ascii")
+            end
           end
-          bucket.put_object(object, :file => file.path)
+        end
+
+        def put_object(bucket_name, object_name, data, options = {})
+          bucket = @oss_client.get_bucket(bucket_name)
+          return bucket.put_object(object_name) if data.nil?
+          # With a single PUT operation you can upload objects up to 5 GB in size.
+          if data.size > 5_368_709_120
+            bucket.resumable_upload(object_name, data.path)
+          end
+          bucket.put_object(object_name, :file => data.path)
+          # data = Fog::Storage.parse_data(data)
+          # puts "dddddddddddd data #{data};;;; headers #{data[:headers]}"
+          # headers = data[:headers].merge!(options)
+          # self.class.conforming_to_us_ascii! headers.keys.grep(/^x-oss-meta-/), headers
+          #
+          # puts "dddddddddd2 headers #{headers}"
+          # http_options = {
+          #     :headers => headers,
+          #     :body => data[:body]
+          # }
+          #
+          # resources = {
+          #     :bucket => bucket_name,
+          #     :object => object_name
+          # }
+          # @oss_http.put(resources, http_options)
         end
 
         def put_object_with_body(object, body, options = {})
@@ -88,34 +111,62 @@ module Fog
           complete_multipart_upload(bucket, object, uploadId)
         end
 
-        def initiate_multipart_upload(bucket, object)
+        def initiate_multipart_upload(bucket_name, object_name, options = {})
           path = object + '?uploads'
-          resource = bucket + '/' + path
+          resource = bucket_name + '/' + path
           ret = request(
             expects: 200,
             method: 'POST',
             path: path,
-            bucket: bucket,
+            bucket: bucket_name,
             resource: resource
           )
           XmlSimple.xml_in(ret.data[:body])['UploadId'][0]
+
+          # # Using OSS ruby SDK to fix performance issue
+          # http_options = {
+          #     :headers => options,
+          #     :query => {'uploads' => nil}
+          # }
+          #
+          # resources = {
+          #     :bucket => bucket_name,
+          #     :object => object_name
+          # }
+          #
+          # @oss_http.post(resources, http_options)
         end
 
-        def upload_part(bucket, object, partNumber, uploadId, body)
-          path = object + '?partNumber=' + partNumber + '&uploadId=' + uploadId
-          resource = bucket + '/' + path
+        def upload_part(bucket_name, object_name, upload_id, part_number, data, options = {})
+          path = object_name + '?partNumber=' + part_number + '&uploadId=' + upload_id
+          resource = bucket_name + '/' + path
           request(
             expects: [200, 203],
             method: 'PUT',
             path: path,
-            bucket: bucket,
+            bucket: bucket_name,
             resource: resource,
             body: body
           )
+          # Using OSS ruby SDK to fix performance issue
+          # data = Fog::Storage.parse_data(data)
+          # headers = options
+          # headers['Content-Length'] = data[:headers]['Content-Length']
+          # http_options = {
+          #     :headers => headers,
+          #     :query => {'uploadId' => upload_id, 'partNumber' => part_number},
+          #     :body => data[:body]
+          # }
+          #
+          # resources = {
+          #     :bucket => bucket_name,
+          #     :object => object_name
+          # }
+          # @oss_http.put(resources, http_options)
         end
 
-        def complete_multipart_upload(bucket, object, uploadId)
-          parts = list_parts(bucket, object, uploadId, options = {})
+        def complete_multipart_upload(bucket_name, object_name, uploadId, parts)
+          parts = list_parts(bucket_name, object_name, uploadId, options = {})
           request_part = []
           return if parts.empty?
           for i in 0..(parts.size - 1)
@@ -124,16 +175,36 @@ module Fog
           end
           body = XmlSimple.xml_out({ 'Part' => request_part }, 'RootName' => 'CompleteMultipartUpload')
 
-          path = object + '?uploadId=' + uploadId
-          resource = bucket + '/' + path
+          path = object_name + '?uploadId=' + uploadId
+          resource = bucket_name + '/' + path
           request(
             expects: 200,
             method: 'POST',
             path: path,
-            bucket: bucket,
+            bucket: bucket_name,
             resource: resource,
             body: body
           )
+          # data = "<CompleteMultipartUpload>"
+          # parts.each_with_index do |part, index|
+          #   data << "<Part>"
+          #   data << "<PartNumber>#{index + 1}</PartNumber>"
+          #   data << "<ETag>#{part}</ETag>"
+          #   data << "</Part>"
+          # end
+          # data << "</CompleteMultipartUpload>"
+          #
+          # http_options = {
+          #     :headers => { 'Content-Length' => data.length },
+          #     :query => {'uploadId' => upload_id},
+          #     :body => data
+          # }
+          #
+          # resources = {
+          #     :bucket => bucket_name,
+          #     :object => object_name
+          # }
+          # @oss_http.post(resources, http_options, nil)
         end
       end
     end

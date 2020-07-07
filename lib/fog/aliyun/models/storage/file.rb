@@ -7,6 +7,7 @@ module Fog
     class Storage
       class File < Fog::Model
         identity :key, aliases: ['Key', 'Name', 'name']
+        # attr_writer :body
         attribute :date, aliases: 'Date'
         attribute :content_length, aliases: 'Content-Length', type: :integer
         attribute :content_type, aliases: 'Content-Type'
@@ -17,6 +18,14 @@ module Fog
         attribute :accept_ranges, aliases: 'Accept-Ranges'
         attribute :server, aliases: 'Server'
         attribute :object_type, aliases: ['x-oss-object-type', 'x_oss_object_type']
+
+        # @note Chunk size to use for multipart uploads.
+        #     Use small chunk sizes to minimize memory. E.g. 5242880 = 5mb
+        # attr_reader :multipart_chunk_size
+        # def multipart_chunk_size=(mp_chunk_size)
+        #   raise ArgumentError.new("minimum multipart_chunk_size is 5242880") if mp_chunk_size < 5242880
+        #   @multipart_chunk_size = mp_chunk_size
+        # end
 
         def body
           attributes[:body] ||=
@@ -120,7 +129,7 @@ module Fog
                      directory_key + '/' + key
                    end
           if body.is_a?(::File)
-            service.put_object(object, body, options.merge(bucket: bucket_name))
+            service.put_object(bucket_name, object, body, options)
           elsif body.is_a?(String)
             service.put_object_with_body(object, body, options.merge(bucket: bucket_name))
           else
@@ -145,9 +154,125 @@ module Fog
           end
         end
 
+        # def save(options = {})
+        #   requires :body, :directory, :key
+        #   options['Content-Type'] = content_type if content_type
+        #   options['Content-Disposition'] = content_disposition if content_disposition
+        #   options.merge!(metadata_to_headers)
+        #   # bucket_name, directory_key = collection.check_directory_key(directory.key)
+        #   # object = if directory_key == ''
+        #   #            key
+        #   #          else
+        #   #            directory_key + '/' + key
+        #   #          end
+        #
+        #   # With a single PUT operation you can upload objects up to 5 GB in size. Automatically set MP for larger objects.
+        #   self.multipart_chunk_size = 5242880 if !multipart_chunk_size && Fog::Storage.get_body_size(body) > 5368709120
+        #   puts "\n\n ******* body size #{Fog::Storage.get_body_size(body)}\n\n;;size #{body.size};  body #{body}"
+        #   if multipart_chunk_size && Fog::Storage.get_body_size(body) >= multipart_chunk_size && body.respond_to?(:read)
+        #
+        #     data = multipart_save(options)
+        #     merge_attributes(data.body)
+        #   else
+        #     puts "\n\n ******* directory key #{directory.key}; class #{directory.key.class};; format_directory_key(directory.key) #{format_directory_key(directory.key)};;;;; key #{key}\n\n"
+        #     data = service.put_object(format_directory_key(directory.key), key, body, options)
+        #     puts "\n\n ******* data headers #{data.headers}\n\n"
+        #     # merge_attributes(data.headers.reject {|key, value| [:content_length, :content_type].include?(key)})
+        #   end
+        #   # body.respond_to?(:read)
+        #   # self.etag = self.etag.gsub('"','') if self.etag
+        #   # # puts "\n\n ******* body #{body};;;;; data.body #{data.body}\n\n"
+        #   # self.content_length = Fog::Storage.get_body_size(body)
+        #   # self.content_type ||= Fog::Storage.get_content_type(body)
+        #   # true
+        #
+        #   begin
+        #     data = service.head_object(key, bucket: format_directory_key(directory.key))
+        #     puts "\n\n head object: data: #{data}; headers #{data.headers};s\n\n body ize #{body.size}"
+        #     self.content_length = data.headers[:content_length]
+        #     self.content_type ||= data.headers[:content_type]
+        #     puts "\n\n return true \n\n"
+        #     true
+        #   rescue Exception => error
+        #     case error.http_code.to_i
+        #       when 404
+        #         nil
+        #       else
+        #         raise(error)
+        #     end
+        #   end
+        #   # if body.is_a?(::File)
+        #   #   service.put_object(object, body, options.merge(bucket: bucket_name))
+        #   # elsif body.is_a?(String)
+        #   #   service.put_object_with_body(object, body, options.merge(bucket: bucket_name))
+        #   # else
+        #   #   raise Fog::Aliyun::Storage::Error, " Forbidden: Invalid body type: #{body.class}!"
+        #   # end
+        #   #
+        #   # begin
+        #   #   data = service.head_object(key, bucket: format_directory_key(directory.key))
+        #   #   update_attributes_from(data)
+        #   #   refresh_metadata
+        #   #
+        #   #   self.content_length = Fog::Storage.get_body_size(body)
+        #   #   self.content_type ||= Fog::Storage.get_content_type(body)
+        #   #   true
+        #   # rescue Exception => error
+        #   #   case error.http_code.to_i
+        #   #     when 404
+        #   #       nil
+        #   #     else
+        #   #       raise(error)
+        #   #   end
+        #   # end
+        # end
+
         private
 
         attr_writer :directory
+        # def directory=(new_directory)
+        #   @directory = new_directory
+        # end
+
+        # def multipart_save(options)
+        #   # Initiate the upload
+        #   begin
+        #     res = service.initiate_multipart_upload(directory.key, key, options)
+        #     upload_id = res.body["UploadId"]
+        #   rescue Exception => error
+        #     raise(error)
+        #   end
+        #
+        #   # Store ETags of upload parts
+        #   part_tags = []
+        #
+        #   # Upload each part
+        #   # TODO: optionally upload chunks in parallel using threads
+        #   # (may cause network performance problems with many small chunks)
+        #   # TODO: Support large chunk sizes without reading the chunk into memory
+        #   if body.respond_to?(:rewind)
+        #     body.rewind  rescue nil
+        #   end
+        #   while (chunk = body.read(multipart_chunk_size)) do
+        #     # TODO: Support encryption_headers
+        #     part_upload = service.upload_part(directory.key, key, upload_id, part_tags.size + 1, chunk, options)
+        #     part_tags << part_upload.headers[:etag]
+        #   end
+        #
+        #   if part_tags.empty? #it is an error to have a multipart upload with no parts
+        #     # TODO: Support encryption_headers
+        #     part_upload = service.upload_part(directory.key, key, upload_id, 1, '', options)
+        #     part_tags << part_upload.headers[:etag]
+        #   end
+        #
+        # rescue
+        #   # Abort the upload & reraise
+        #   service.abort_multipart_upload(directory.key, key, upload_id) if upload_id
+        #   raise
+        # else
+        #   # Complete the upload
+        #   service.complete_multipart_upload(directory.key, key, upload_id, part_tags)
+        # end
 
         def refresh_metadata
           metadata.reject! { |_k, v| v.nil? }
@@ -221,6 +346,12 @@ module Fog
         def update_attributes_from(data)
           merge_attributes(data.headers.reject { |key, _value| [:content_length, :content_type].include?(key) })
         end
+
+        # def format_directory_key(key)
+        #   if !key.nil? && (key.is_a? Array) && (key.size > 0)
+        #     key[0]
+        #   end
+        # end
       end
     end
   end

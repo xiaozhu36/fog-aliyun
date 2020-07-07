@@ -16,10 +16,21 @@ module Fog
           bucket.delete_object(object)
         end
 
-        def abort_multipart_upload(bucket_name, object, upload_id)
-          bucket = @oss_client.get_bucket(bucket_name)
-          bucket.abort_upload(upload_id, object)
-        end
+        # def abort_multipart_upload(bucket_name, object_name, upload_id)
+        #   # bucket = @oss_client.get_bucket(bucket_name)
+        #   # bucket.abort_upload(upload_id, object_name)
+        #   http_options = {
+        #       :headers => {},
+        #       :query => {'uploadId' => upload_id}
+        #   }
+        #
+        #   resources = {
+        #       :bucket => bucket_name,
+        #       :object => object_name
+        #   }
+        #
+        #   @oss_http.delete(resources, http_options, nil)
+        # end
       end
     end
   end
